@@ -77,6 +77,16 @@ async function gzip(str) {
   const stream = new Blob([str]).stream().pipeThrough(new CompressionStream("gzip"));
   return await new Response(stream).arrayBuffer();
 }
+function toB64(buf) {
+  const u = new Uint8Array(buf); let s = "";
+  for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode.apply(null, u.subarray(i, i + 32768));
+  return btoa(s);
+}
+function fromB64(str) {
+  const s = atob(str); const u = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
+  return u;
+}
 async function gunzip(buf) {
   const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"));
   return await new Response(stream).text();
@@ -93,9 +103,9 @@ $("save").onclick = async () => {
   $("save").disabled = true; $("result").hidden = true;
   try {
     say($("saveMsg"), "Compressing...");
-    const body = await gzip(text);
-    say($("saveMsg"), "Uploading " + fmt(body.byteLength) + "...");
-    const r = await fetch("/api/save", { method: "PUT", headers: { "x-password": pw() }, body });
+    const body = toB64(await gzip(text));
+    say($("saveMsg"), "Uploading " + fmt(body.length) + "...");
+    const r = await fetch("/api/save", { method: "PUT", headers: { "x-password": pw(), "content-type": "text/plain" }, body });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error);
     $("codeOut").textContent = d.code; $("result").hidden = false;
@@ -112,7 +122,7 @@ $("load").onclick = async () => {
     say($("loadMsg"), "Downloading...");
     const r = await fetch("/api/load?code=" + encodeURIComponent(c), { headers: { "x-password": pw() } });
     if (!r.ok) throw new Error((await r.json()).error);
-    loaded = await gunzip(await r.arrayBuffer());
+    loaded = await gunzip(fromB64(await r.text()));
     $("preview").textContent = loaded.slice(0, 2000) + (loaded.length > 2000 ? "\\n\\n... (preview only)" : "");
     $("got").hidden = false;
     say($("loadMsg"), "Loaded " + loaded.length.toLocaleString() + " characters.");
@@ -150,9 +160,9 @@ export default {
       return json({ error: "Wrong password." }, 401);
 
     if (url.pathname === "/api/save" && req.method === "PUT") {
-      const body = await req.arrayBuffer();
-      if (body.byteLength === 0) return json({ error: "Nothing to save." }, 400);
-      if (body.byteLength > MAX_BYTES)
+      const body = await req.text();
+      if (body.length === 0) return json({ error: "Nothing to save." }, 400);
+      if (body.length > MAX_BYTES)
         return json({ error: "Text is too large even after compression (25 MB limit)." }, 413);
       const id = code();
       await env.TEXTS.put(id, body, { expirationTtl: TTL });
@@ -161,9 +171,9 @@ export default {
 
     if (url.pathname === "/api/load" && req.method === "GET") {
       const id = (url.searchParams.get("code") || "").toUpperCase().trim();
-      const data = await env.TEXTS.get(id, { type: "arrayBuffer" });
+      const data = await env.TEXTS.get(id, { type: "text" });
       if (!data) return json({ error: "Code not found or expired. KV can take up to a minute to sync, so try again shortly." }, 404);
-      return new Response(data, { headers: { "content-type": "application/octet-stream" } });
+      return new Response(data, { headers: { "content-type": "text/plain" } });
     }
 
     return json({ error: "Not found." }, 404);
