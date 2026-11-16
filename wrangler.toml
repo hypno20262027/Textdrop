@@ -1,0 +1,7 @@
+name = "textdrop"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "TEXTS"
+id = "859032f4822b46539f04cf9440d2c3f0"
